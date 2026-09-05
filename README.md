@@ -56,6 +56,13 @@ OpenMono is a coding agent that runs **entirely on your hardware** — no subscr
 
 ## Quickstart
 
+**Using Xiaomi MiMo or another OpenAI-compatible API?** Follow the
+[server deployment guide](docs/DEPLOYMENT.md) to build this fork and use
+`mimo-v2.5-pro`. Put your API key in **`docker/.env` on the deployment server**;
+the tracked template is `docker/.env.mimo.example`. Your private `docker/.env` stays out of Git.
+This deployment uses a hosted API and does not require the local inference
+installer below. For other providers, see [configuration](docs/CONFIG.md#openai-compatible-inference-including-xiaomi-mimo).
+
 One command. Auto-detects GPU · CPU · Apple Silicon. Installs model, runtime, and Docker containers.
 
 ```bash

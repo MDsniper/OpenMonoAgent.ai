@@ -4,6 +4,14 @@ The code and blank configuration template belong in GitHub. Your MiMo Token
 Plan API key belongs in **`docker/.env` on the deployment server**. That file is
 ignored by Git and excluded from the Docker build context.
 
+## What changed in this fork
+
+- Added `openai-compatible` inference with configurable endpoint, model, and key.
+- Configured the MiMo example for `https://token-plan-sgp.xiaomimimo.com/v1`
+  and `mimo-v2.5-pro`, including reasoning and tool-call history support.
+- Disabled llama.cpp startup probes, warmup, and recovery in compatible mode.
+- Added a blank server configuration template; no API key is included in the repo.
+
 ## First deployment
 
 Install Git, Docker Engine, and the Docker Compose plugin on the server. No GPU,
