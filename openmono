@@ -803,11 +803,13 @@ cmd_agent() {
     cd "$DOCKER_DIR"
 
     local settings="$HOME/.openmono/settings.json"
-    local cfg_endpoint cfg_key cfg_web_gateway cfg_web_search cfg_web_scrape
+    local cfg_endpoint="${OPENMONO_ENDPOINT:-}" cfg_provider="${OPENMONO_PROVIDER:-local}"
+    local cfg_key cfg_web_gateway cfg_web_search cfg_web_scrape
     if [[ -f "$settings" ]] && command -v jq &>/dev/null; then
-        cfg_endpoint=$(jq -r '.llm.endpoint // empty' "$settings")
+        [[ -z "$cfg_endpoint" ]] && cfg_endpoint=$(jq -r '.llm.endpoint // empty' "$settings")
+        cfg_provider="${OPENMONO_PROVIDER:-$(jq -r '.llm.provider // "local"' "$settings")}"
         cfg_key=$(jq -r '.llm.api_key // empty' "$settings")
-        [[ -n "$cfg_key" ]] && export OPENMONO_API_KEY="$cfg_key"
+        [[ -n "$cfg_key" && -z "${OPENMONO_API_KEY:-}" ]] && export OPENMONO_API_KEY="$cfg_key"
         cfg_web_gateway=$(jq -r '.web.gateway // empty' "$settings")
         cfg_web_search=$(jq -r '.web.search // empty' "$settings")
         cfg_web_scrape=$(jq -r '.web.scrape // empty' "$settings")
@@ -838,7 +840,7 @@ cmd_agent() {
             ;;
     esac
 
-    if [[ "$is_local" == "true" ]]; then
+    if [[ "$is_local" == "true" && "$cfg_provider" == "local" ]]; then
         if [[ "$NATIVE_INFERENCE" == "true" ]]; then
             source "$REPO_DIR/scripts/macos/inference.sh" 2>/dev/null || true
             native_load_config || exit 1
@@ -861,9 +863,15 @@ cmd_agent() {
         fi
     fi
 
-     if [[ "$is_local" == "true" && "$NATIVE_INFERENCE" != "true" ]]; then
+     if [[ "$is_local" == "true" && "$cfg_provider" == "local" && "$NATIVE_INFERENCE" != "true" ]]; then
         export OPENMONO_ENDPOINT="http://llama-server:7474"
     else
+        # A compatible API on the host (e.g. LM Studio) is reached from Docker
+        # through the host gateway, preserving its port and API path.
+        if [[ "$cfg_provider" != "local" ]]; then
+            cfg_endpoint="${cfg_endpoint/http:\/\/localhost:/http:\/\/host.docker.internal:}"
+            cfg_endpoint="${cfg_endpoint/http:\/\/127.0.0.1:/http:\/\/host.docker.internal:}"
+        fi
         export OPENMONO_ENDPOINT="$cfg_endpoint"
     fi
 

@@ -43,6 +43,9 @@ public static class ConfigLoader
         if (configPath is not null)
             MergeFromFile(config, configPath, warn);
 
+        ApplyActiveModelPreset(config);
+        new Llm.ProviderRegistry().ApplyProviderSettings(config,
+            Environment.GetEnvironmentVariable("OPENMONO_PROVIDER"));
         ApplyEnvironmentOverrides(config);
 
         // Context-size precedence: env > explicit llm.context_size > live server
@@ -58,8 +61,6 @@ public static class ConfigLoader
         {
             config.Llm.ContextSize = config.Inference.CtxSize;
         }
-
-        ApplyActiveModelPreset(config);
 
         EnsureWritableDataDirectory(config, warn);
 
@@ -185,6 +186,12 @@ public static class ConfigLoader
 
     private static void ApplyActiveModelPreset(AppConfig config)
     {
+        var presetName = Environment.GetEnvironmentVariable("OPENMONO_MODEL_PRESET");
+        if (!string.IsNullOrEmpty(presetName) && config.ModelPresets.TryGetValue(presetName, out var preset))
+        {
+            foreach (var p in config.ModelPresets.Values) p.Active = false;
+            preset.Active = true;
+        }
         var active = config.ModelPresets.FirstOrDefault(p => p.Value.Active);
         if (active.Value is null) return;
         config.Llm.MergeFrom(active.Value);
@@ -259,19 +266,5 @@ public static class ConfigLoader
         if (!string.IsNullOrEmpty(repetitionPenalty) && double.TryParse(repetitionPenalty, out var rpVal) && rpVal > 0)
             config.Llm.RepetitionPenalty = rpVal;
 
-        var modelPreset = Environment.GetEnvironmentVariable("OPENMONO_MODEL_PRESET");
-        if (!string.IsNullOrEmpty(modelPreset) && config.ModelPresets.TryGetValue(modelPreset, out var mp))
-        {
-            foreach (var p in config.ModelPresets.Values) p.Active = false;
-            mp.Active = true;
-        }
-
-        var provider = Environment.GetEnvironmentVariable("OPENMONO_PROVIDER");
-        if (!string.IsNullOrEmpty(provider) && config.Providers.TryGetValue(provider, out var ps))
-        {
-
-            foreach (var p in config.Providers.Values) p.Active = false;
-            ps.Active = true;
-        }
     }
 }

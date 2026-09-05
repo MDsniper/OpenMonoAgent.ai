@@ -118,9 +118,8 @@ static async Task RunAgentAsync(string? endpoint, string? model, string? workdir
     IRenderer renderer = new TerminalRenderer();
     var config = ConfigLoader.Load(workdir, configPath, warn: msg => renderer.WriteWarning(msg));
     if (endpoint is not null) config.Llm.Endpoint = endpoint;
-
-    await TryDetectActualModelAsync(config);
     if (model is not null) config.Llm.Model = model;
+    await TryDetectActualModelAsync(config);
 
     // Seed the model catalog (used by /model and inline suggestions) with the active model, then
     // refresh the full list of backend-advertised models in the background so the UI stays responsive.
@@ -162,7 +161,8 @@ static async Task RunAgentAsync(string? endpoint, string? model, string? workdir
     if (llm is OpenAiCompatClient openAiClient)
     {
         openAiClient.OnDebug = debugCallback;
-        openAiClient.OnModelReported = m => config.Llm.Model = m;
+        if (config.Llm.UsesLlamaExtensions)
+            openAiClient.OnModelReported = m => config.Llm.Model = m;
     }
     if (llm is AnthropicClient anthropicClient) anthropicClient.OnDebug = debugCallback;
 
@@ -436,7 +436,7 @@ static async Task RunAgentAsync(string? endpoint, string? model, string? workdir
     renderer.WriteWelcome(config.Llm.Model, config.Llm.Endpoint);
 
     Task? warmupTask = null;
-    if (!await IsServerWarmAsync(config.Llm.Endpoint, config.Llm.ApiKey))
+    if (config.Llm.UsesLlamaExtensions && !await IsServerWarmAsync(config.Llm.Endpoint, config.Llm.ApiKey))
     {
         renderer.WriteInfo("Warming KV cache in background — first response will be slower.");
         warmupTask = SendWarmupAsync(config.Llm.Endpoint, systemPrompt, tools.BuildToolDefinitions(), config.Llm.Model);
@@ -649,7 +649,12 @@ static async Task RunAgentAsync(string? endpoint, string? model, string? workdir
         }
         catch (HttpRequestException ex)
         {
-            if (ex.StatusCode is null)
+            if (!config.Llm.UsesLlamaExtensions)
+            {
+                renderer.WriteError($"LLM error: {ex.Message}");
+                renderer.WriteInfo($"Check the API base URL ({config.Llm.Endpoint}), model name, API key, and provider quota.");
+            }
+            else if (ex.StatusCode is null)
             {
                 renderer.WriteError($"LLM error: {ex.Message}");
                 await TryRecoverLlamaServerAsync(renderer, config.WorkingDirectory, config.Llm.Endpoint, config.Llm.ApiKey);
@@ -922,6 +927,18 @@ static async Task<int?> TryDetectCtxFromSlotsAsync(System.Net.Http.HttpClient ht
 
 static async Task TryDetectActualModelAsync(AppConfig config)
 {
+    // Hosted backends can advertise many models. Never replace an explicit model
+    // with the first catalog entry, and do not call llama-only endpoints.
+    if (!config.Llm.UsesLlamaExtensions)
+    {
+        if (string.IsNullOrWhiteSpace(config.Llm.Model))
+        {
+            var models = await ModelCatalog.FetchAsync(config.Llm.Endpoint, config.Llm.ApiKey);
+            if (models.Count == 1) config.Llm.Model = models[0];
+            else throw new ArgumentException("Set llm.model, OPENMONO_MODEL, or --model to your provider's model ID.");
+        }
+        return;
+    }
     using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
     if (!string.IsNullOrWhiteSpace(config.Llm.ApiKey))
         http.DefaultRequestHeaders.Authorization =
@@ -956,7 +973,7 @@ static async Task TryDetectActualModelAsync(AppConfig config)
             name = DisplayNameFromPath(m.GetString()!);
         }
 
-        if (!string.IsNullOrWhiteSpace(name))
+        if (!string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(config.Llm.Model))
         {
             config.Llm.Model = name!;
             Log.Debug($"Detected model from /props: {name}");
@@ -1002,7 +1019,8 @@ static async Task TryDetectActualModelAsync(AppConfig config)
 
     try
     {
-        var json = await http.GetStringAsync($"{baseUrl}/v1/models");
+        if (!string.IsNullOrWhiteSpace(config.Llm.Model)) return;
+        var json = await http.GetStringAsync(OpenAiEndpoint.Resource(baseUrl, "models"));
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         if (doc.RootElement.TryGetProperty("data", out var data)
             && data.ValueKind == System.Text.Json.JsonValueKind.Array)

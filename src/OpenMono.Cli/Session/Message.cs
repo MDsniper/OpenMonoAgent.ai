@@ -15,6 +15,8 @@ public sealed record Message
 {
     public required MessageRole Role { get; init; }
     public string? Content { get; init; }
+    // Provider-returned reasoning must survive tool turns and session persistence.
+    public string? ReasoningContent { get; init; }
     public IReadOnlyList<ContentPart>? ContentParts { get; init; }
     public List<ToolCall>? ToolCalls { get; init; }
     public string? ToolCallId { get; init; }

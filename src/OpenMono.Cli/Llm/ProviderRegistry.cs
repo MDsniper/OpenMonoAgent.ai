@@ -11,6 +11,7 @@ public sealed class ProviderRegistry
 
         Register(new LocalLlamaProvider());
         Register(new OpenAiProvider());
+        Register(new OpenAiCompatibleProvider());
         Register(new AnthropicProvider());
         Register(new OllamaProvider());
     }
@@ -23,28 +24,51 @@ public sealed class ProviderRegistry
 
     public ILlmClient CreateClient(AppConfig config)
     {
+        if (config.Llm.Provider is null)
+            ApplyProviderSettings(config);
+        var name = (config.Llm.Provider ?? "local").ToLowerInvariant();
+        var provider = Resolve(name)
+            ?? throw new ArgumentException($"Unknown LLM provider '{name}'.");
+        if (name is "local" or "openai" or "openai-compatible" or "ollama")
+            return new OpenAiCompatClient(config.Llm) { ApiKey = config.Llm.ApiKey };
 
-        if (config.Providers.Count > 0)
+        return provider.CreateClient(new ProviderConfig
         {
-            var activeProvider = config.Providers.FirstOrDefault(p => p.Value.Active);
-            if (activeProvider.Value is not null)
-            {
-                var provider = Resolve(activeProvider.Key);
-                if (provider is not null)
-                {
-                    var providerConfig = new ProviderConfig
-                    {
-                        Name = activeProvider.Key,
-                        ApiKey = activeProvider.Value.ApiKey,
-                        Endpoint = activeProvider.Value.Endpoint,
-                        Model = activeProvider.Value.Model,
-                    };
-                    return provider.CreateClient(providerConfig);
-                }
-            }
-        }
+            Name = name, Endpoint = config.Llm.Endpoint,
+            ApiKey = config.Llm.ApiKey, Model = config.Llm.Model,
+        });
+    }
 
-        return new OpenAiCompatClient(config.Llm) { ApiKey = config.Llm.ApiKey };
+    // Resolve once, before environment/CLI overrides and startup model discovery, so
+    // requests, the model picker, and context accounting all use the same backend.
+    public void ApplyProviderSettings(AppConfig config, string? providerOverride = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerOverride)) providerOverride = null;
+        var active = config.Providers.FirstOrDefault(p => p.Value.Active);
+        var name = (providerOverride ?? config.Llm.Provider ?? active.Key ?? "local").ToLowerInvariant();
+        if (Resolve(name) is null)
+            throw new ArgumentException($"Unknown LLM provider '{name}'.");
+
+        config.Llm.Provider = name;
+        var settings = config.Providers.FirstOrDefault(p => p.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Value;
+        var defaultEndpoint = name switch
+        {
+            "openai" => "https://api.openai.com/v1",
+            "anthropic" => "https://api.anthropic.com",
+            "ollama" => "http://localhost:11434/v1",
+            _ => config.Llm.Endpoint,
+        };
+        config.Llm.Endpoint = settings?.Endpoint ??
+            (config.Llm.Endpoint == "http://localhost:7474" ? defaultEndpoint : config.Llm.Endpoint);
+        config.Llm.Model = settings?.Model ?? config.Llm.Model;
+        config.Llm.ApiKey = settings?.ApiKey ?? config.Llm.ApiKey ?? (name switch
+        {
+            "openai" => Environment.GetEnvironmentVariable("OPENAI_API_KEY"),
+            "anthropic" => Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY"),
+            _ => null,
+        });
+        if (string.IsNullOrEmpty(config.Llm.Model) && name == "openai")
+            config.Llm.Model = "gpt-4o";
     }
 
     public IReadOnlyList<string> ListModels()
@@ -84,6 +108,7 @@ internal sealed class OpenAiProvider : IProvider
         var apiKey = config.ApiKey ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         return new OpenAiCompatClient(new LlmConfig
         {
+            Provider = Name,
             Endpoint = config.Endpoint ?? "https://api.openai.com",
             Model = config.Model ?? "gpt-4o",
         })
@@ -111,6 +136,7 @@ internal sealed class OllamaProvider : IProvider
     public ILlmClient CreateClient(ProviderConfig config) =>
         new OpenAiCompatClient(new LlmConfig
         {
+            Provider = Name,
             Endpoint = config.Endpoint ?? "http://localhost:11434",
             Model = config.Model ?? "qwen2.5-coder",
         });
@@ -119,5 +145,26 @@ internal sealed class OllamaProvider : IProvider
     {
         error = null;
         return true;
+    }
+}
+
+internal sealed class OpenAiCompatibleProvider : IProvider
+{
+    public string Name => "openai-compatible";
+    public string[] SupportedModels => [];
+
+    public ILlmClient CreateClient(ProviderConfig config) =>
+        new OpenAiCompatClient(new LlmConfig
+        {
+            Provider = Name,
+            Endpoint = config.Endpoint ?? throw new ArgumentException("An OpenAI-compatible API base URL is required."),
+            Model = config.Model ?? "",
+        }) { ApiKey = config.ApiKey };
+
+    public bool ValidateConfig(ProviderConfig config, out string? error)
+    {
+        error = Uri.TryCreate(config.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+            ? null : "Set an HTTP(S) API base URL for the OpenAI-compatible provider.";
+        return error is null;
     }
 }

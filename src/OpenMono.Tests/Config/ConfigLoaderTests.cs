@@ -109,6 +109,43 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Load_CompatibleProviderEnvironmentOverridesNamedProviderSettings()
+    {
+        var projectDir = Path.Combine(_tempDir, ".openmono");
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllText(Path.Combine(projectDir, "settings.json"), """
+        {
+          "providers": {
+            "openai-compatible": {
+              "active": true, "endpoint": "https://old.example/v1",
+              "model": "old-model", "api_key": "old-key"
+            }
+          }
+        }
+        """);
+        var overrides = new Dictionary<string, string>
+        {
+            ["OPENMONO_ENDPOINT"] = "https://token-plan-sgp.xiaomimimo.com/v1",
+            ["OPENMONO_MODEL"] = "mimo-v2.5-pro",
+            ["OPENMONO_API_KEY"] = "new-test-key",
+        };
+        var previous = overrides.Keys.ToDictionary(k => k, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var (key, value) in overrides) Environment.SetEnvironmentVariable(key, value);
+            var config = ConfigLoader.Load(_tempDir);
+            config.Llm.Provider.Should().Be("openai-compatible");
+            config.Llm.Endpoint.Should().Be(overrides["OPENMONO_ENDPOINT"]);
+            config.Llm.Model.Should().Be(overrides["OPENMONO_MODEL"]);
+            config.Llm.ApiKey.Should().Be(overrides["OPENMONO_API_KEY"]);
+        }
+        finally
+        {
+            foreach (var (key, value) in previous) Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
+    [Fact]
     public void Load_EnvironmentOverrides()
     {
         Environment.SetEnvironmentVariable("OPENMONO_ENDPOINT", "http://custom:9090");

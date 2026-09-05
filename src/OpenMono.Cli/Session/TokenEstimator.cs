@@ -16,6 +16,7 @@ public static class TokenEstimator
 
     private static int MessageCharCount(Message m)
         => (m.Content?.Length ?? 0)
+           + (m.ReasoningContent?.Length ?? 0)
            + (m.ToolCalls?.Sum(c => c.Arguments?.Length ?? 0) ?? 0)
            + 20;
 }

@@ -1,6 +1,11 @@
 # Models are mounted as volumes, not baked into images
 models/
 
+# Server credentials and local session/configuration data never enter builds.
+**/.env
+**/.env.*
+**/.openmono/
+
 # Reference code is mounted as volume
 ref/
 

@@ -52,7 +52,7 @@ public static class ModelCatalog
             if (!string.IsNullOrWhiteSpace(apiKey))
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-            var url = $"{endpoint.TrimEnd('/')}/v1/models";
+            var url = OpenAiEndpoint.Resource(endpoint, "models");
             var json = await http.GetStringAsync(url, ct);
             using var doc = JsonDocument.Parse(json);
 

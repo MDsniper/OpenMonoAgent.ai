@@ -110,11 +110,14 @@ services:
     environment:
       - HOME=/home/agent
       - OPENMONO_ENDPOINT=${OPENMONO_ENDPOINT:-http://llama-server:7474}
+      - OPENMONO_PROVIDER=${OPENMONO_PROVIDER:-}
+      - OPENMONO_MODEL=${OPENMONO_MODEL:-}
       - OPENMONO_WORKSPACE=/workspace
       - OPENMONO_HOST_WORKSPACE=${WORKSPACE:-.}
       - OPENMONO_API_KEY=${OPENMONO_API_KEY:-${LLAMA_API_KEY:-}}
       - OPENMONO_VISION_ENABLED=${OPENMONO_VISION_ENABLED:-0}
       - OPENMONO_CONTEXT_SIZE=${CTX_SIZE:-196608}
+      - OPENMONO_MAX_OUTPUT_TOKENS=${OPENMONO_MAX_OUTPUT_TOKENS:-16384}
       # TUI in the foreground for the user, ACP server in the background on
       # 7475 so IDE clients and the VS Code extension can connect to the same
       # session. Disable with OPENMONO_ACP_ENABLED=0.

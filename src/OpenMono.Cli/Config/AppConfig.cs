@@ -61,6 +61,9 @@ public sealed class ModelPresetSettings : LlmConfig
 
 public class LlmConfig
 {
+    public string? Provider { get; set; }
+    [JsonIgnore]
+    public bool UsesLlamaExtensions => Provider is null || Provider.Equals("local", StringComparison.OrdinalIgnoreCase);
     public string Endpoint { get; set; } = "http://localhost:7474";
     public string Model { get; set; } = "";
     public string? ApiKey { get; set; }
@@ -85,6 +88,7 @@ public class LlmConfig
 
     public void MergeFrom(LlmConfig source)
     {
+        if (!string.IsNullOrEmpty(source.Provider)) Provider = source.Provider;
         if (!string.IsNullOrEmpty(source.Endpoint)) Endpoint = source.Endpoint;
         if (!string.IsNullOrEmpty(source.Model)) Model = source.Model;
         if (!string.IsNullOrEmpty(source.ApiKey)) ApiKey = source.ApiKey;

@@ -35,6 +35,7 @@ public static class TokenEstimate
 
     private static string SerializeMessage(Message m)
     {
+        var reasoning = m.ReasoningContent is null ? "" : $",\"reasoning_content\":{JsonStr(m.ReasoningContent)}";
         return m.Role switch
         {
             MessageRole.System => $"{{\"role\":\"system\",\"content\":{JsonStr(m.Content)}}}",
@@ -42,8 +43,8 @@ public static class TokenEstimate
                 $"{{\"role\":\"user\",\"content\":{SerializeContentParts(m.ContentParts)}}}",
             MessageRole.User => $"{{\"role\":\"user\",\"content\":{JsonStr(m.Content)}}}",
             MessageRole.Assistant when m.ToolCalls is { Count: > 0 } =>
-                $"{{\"role\":\"assistant\",\"content\":{JsonStr(m.Content ?? "")},\"tool_calls\":{SerializeToolCalls(m.ToolCalls)}}}",
-            MessageRole.Assistant => $"{{\"role\":\"assistant\",\"content\":{JsonStr(m.Content)}}}",
+                $"{{\"role\":\"assistant\",\"content\":{JsonStr(m.Content ?? "")}{reasoning},\"tool_calls\":{SerializeToolCalls(m.ToolCalls)}}}",
+            MessageRole.Assistant => $"{{\"role\":\"assistant\",\"content\":{JsonStr(m.Content)}{reasoning}}}",
             MessageRole.Tool => $"{{\"role\":\"tool\",\"tool_call_id\":{JsonStr(m.ToolCallId)},\"content\":{JsonStr(m.Content)}}}",
             _ => $"{{\"role\":\"user\",\"content\":{JsonStr(m.Content)}}}",
         };

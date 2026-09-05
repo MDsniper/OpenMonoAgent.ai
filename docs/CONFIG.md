@@ -65,6 +65,61 @@ For the dual-box walkthrough, see `setup/readme.md`.
 
 ## Settings
 
+### OpenAI-compatible inference (including Xiaomi MiMo)
+
+Deploying on another server? Follow [Deploy with Xiaomi MiMo](DEPLOYMENT.md):
+keep the API key in the server's private `docker/.env`, created from the tracked
+`docker/.env.mimo.example` template.
+
+Set `llm.provider` to `openai-compatible` to use a Chat Completions API with
+streaming and function calling. The endpoint is an API base URL: `/v1` is
+preserved, and a bare server URL gets `/v1` appended. Custom prefixes such as
+`https://example.com/api/v1` are also supported.
+
+The repository includes `examples/mimo.settings.json` for the Singapore Token
+Plan endpoint and `mimo-v2.5-pro`. From the repository root, run:
+
+```bash
+# Set OPENMONO_API_KEY privately in your shell to your MiMo Token Plan key.
+dotnet run --project src/OpenMono.Cli -- --config examples/mimo.settings.json --classic
+```
+
+This requires the .NET 10 SDK; no local model download or inference container
+is needed. For another project, also pass `--workdir /path/to/project` and use
+an absolute path for `--config`.
+
+For persistent configuration, merge the following into your user-level
+`~/.openmono/settings.json` or project-level `.openmono/settings.json`:
+
+```json
+{
+  "llm": {
+    "provider": "openai-compatible",
+    "endpoint": "https://token-plan-sgp.xiaomimimo.com/v1",
+    "model": "mimo-v2.5-pro",
+    "context_size": 1048576,
+    "max_output_tokens": 32768
+  }
+}
+```
+
+Keep the key in `OPENMONO_API_KEY`, outside tracked files. `OPENMONO_PROVIDER`,
+`OPENMONO_ENDPOINT`, and `OPENMONO_MODEL` override these settings. Set context
+and output limits appropriate to your selected model. The Docker launcher
+also accepts these environment variables; rebuild its agent image after source
+changes (`docker compose -f docker/docker-compose.yml build agent`).
+
+Compatible mode skips llama.cpp probes, warmup requests, recovery, and
+llama-specific sampling parameters. MiMo uses `max_completion_tokens` and
+`thinking.type`; `/think` toggles reasoning, and returned reasoning is retained
+with tool-call history as required by the
+[MiMo API](https://mimo.mi.com/docs/en-US/usage-guide/passing-back-reasoning_content).
+Other compatible models use `max_tokens`; provider-specific restrictions may
+require further adaptation. `/model <id>` selects another model on the same
+endpoint; changing providers requires restarting with updated settings.
+
+### Loading order
+
 Settings are loaded in this order, each layer overriding the previous:
 
 1. Built-in defaults

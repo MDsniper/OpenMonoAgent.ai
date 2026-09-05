@@ -409,6 +409,7 @@ public sealed class ConversationLoop : IDisposable
             }
 
             var textBuffer = new StringBuilder();
+            var reasoningBuffer = new StringBuilder();
             var toolCalls = new List<ToolCall>();
             var receivedFirstChunk = false;
             var thinkingStarted = false;
@@ -447,6 +448,7 @@ public sealed class ConversationLoop : IDisposable
 
                 if (chunk.ThinkingDelta is not null)
                 {
+                    reasoningBuffer.Append(chunk.ThinkingDelta);
                     _output.AppendThinking(chunk.ThinkingDelta);
                     thinkingStarted = true;
                     thinkingChars += chunk.ThinkingDelta.Length;
@@ -575,6 +577,7 @@ public sealed class ConversationLoop : IDisposable
             {
                 Role = MessageRole.Assistant,
                 Content = textBuffer.Length > 0 ? textBuffer.ToString() : null,
+                ReasoningContent = reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null,
                 ToolCalls = toolCalls.Count > 0 ? toolCalls : null,
             };
 
@@ -598,6 +601,7 @@ public sealed class ConversationLoop : IDisposable
                 {
                     Role = MessageRole.Assistant,
                     Content = assistantContent,
+                    ReasoningContent = assistantMsg.ReasoningContent,
                     ToolCalls = toolCalls.Count > 0 ? toolCalls : null,
                 });
 

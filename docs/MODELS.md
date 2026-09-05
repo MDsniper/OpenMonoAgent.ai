@@ -187,17 +187,13 @@ For a single-user setup (typical), keep `--parallel 1` to maximise context. To a
 
 ## Using cloud models instead
 
-> [!CAUTION]
-> Cloud providers (OpenAI, Anthropic, Ollama) are WIP and untested. Local llama.cpp is the only fully supported provider.
+Use `llm.provider: "openai-compatible"` with your provider's API base URL,
+model ID, and `OPENMONO_API_KEY`. A ready-to-use MiMo configuration is included
+in `examples/mimo.settings.json`; see [OpenAI-compatible inference](CONFIG.md#openai-compatible-inference-including-xiaomi-mimo)
+for setup and supported behavior. Live compatibility depends on the provider's
+streaming Chat Completions and function-calling support.
 
-If you prefer a cloud model for a session, switch without restarting:
-
-```bash
-/model claude-sonnet-4-20250514   # Anthropic (requires ANTHROPIC_API_KEY)
-/model gpt-4o                     # OpenAI (requires OPENAI_API_KEY)
-```
-
-Or set permanently in `settings.json`:
+The existing named provider configuration is also supported, for example:
 
 ```jsonc
 {
@@ -207,7 +203,8 @@ Or set permanently in `settings.json`:
 }
 ```
 
-The local llama-server keeps running in the background — switch back to it any time with `/model qwen3.8-27b` (GPU) or `/model qwen3.6-35b-a3b` (CPU).
+`/model <id>` changes models on the current backend; it does not switch providers.
+Restart with `llm.provider: "local"` and your local endpoint to use llama.cpp again.
 
 ---
 

@@ -19,6 +19,14 @@ public sealed record ModelReasoningProfile
 
     private static readonly ModelReasoningProfile _none = new() { Kind = ReasoningKind.None };
 
+    private static readonly ModelReasoningProfile _mimo = new()
+    {
+        Kind = ReasoningKind.BinaryToggle,
+        DefaultEnabled = true,
+        DefaultLevel = "on",
+        PreserveThinking = true,
+    };
+
     private static readonly ModelReasoningProfile _qwen3 = new()
     {
         Kind = ReasoningKind.BinaryToggle,
@@ -45,6 +53,9 @@ public sealed record ModelReasoningProfile
             return _none;
 
         var lower = modelName.ToLowerInvariant();
+
+        if (lower.StartsWith("mimo-v2.5"))
+            return _mimo;
 
         if (lower.Contains("qwen-3.8") || lower.Contains("qwen3.8") || lower.StartsWith("qwen38-"))
             return _qwen38;

@@ -45,6 +45,8 @@ public class ConversationLoopTests
     {
         var toolCallChunks = new List<StreamChunk>
         {
+            new() { ThinkingDelta = "Inspect " },
+            new() { ThinkingDelta = "the tool result." },
             new()
             {
                 ToolCallDelta = new ToolCall { Id = "t1", Name = "TestTool", Arguments = "{}" },
@@ -74,6 +76,8 @@ public class ConversationLoopTests
 
         session.Messages.Count.Should().BeGreaterThanOrEqualTo(5);
         session.Messages.Any(m => m.Role == MessageRole.Tool).Should().BeTrue();
+        session.Messages.Single(m => m.Role == MessageRole.Assistant && m.ToolCalls is { Count: > 0 })
+            .ReasoningContent.Should().Be("Inspect the tool result.");
     }
 
     [Fact]

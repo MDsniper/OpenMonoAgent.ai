@@ -12,6 +12,7 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
 {
     private readonly HttpClient _http;
     private readonly string _endpoint;
+    private readonly bool _usesLlamaExtensions;
     private const int MaxRetries = 3;
 
     private static SemaphoreSlim? _requestGate;
@@ -40,10 +41,16 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
     private readonly string _model;
 
     public OpenAiCompatClient(LlmConfig config)
+        : this(config, new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
     {
-        _endpoint = config.Endpoint.TrimEnd('/');
+    }
+
+    internal OpenAiCompatClient(LlmConfig config, HttpClient http)
+    {
+        _endpoint = OpenAiEndpoint.Resource(config.Endpoint, "chat/completions");
+        _usesLlamaExtensions = config.UsesLlamaExtensions;
         _model = config.Model;
-        _http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        _http = http;
         EnsureRequestGate(config.MaxConcurrentRequests);
     }
 
@@ -91,13 +98,13 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
                 await Task.Delay(retryDelay, ct);
             }
 
-            var requestBody = BuildRequestBody(messages, tools, options, _model);
+            var requestBody = BuildRequestBody(messages, tools, options, _model, _usesLlamaExtensions);
             var requestJson = JsonSerializer.Serialize(requestBody, JsonOptions.Default);
 
             if (attempt == 0)
             {
                 var toolCount = tools?.ValueKind == JsonValueKind.Array ? tools.Value.GetArrayLength() : 0;
-                OnDebug?.Invoke($"[LLM] POST {_endpoint}/v1/chat/completions");
+                OnDebug?.Invoke($"[LLM] POST {_endpoint}");
                 var resolvedModel = string.IsNullOrEmpty(options.Model) ? _model : options.Model;
                 OnDebug?.Invoke($"[LLM] Model: {resolvedModel} | Messages: {messages.Count} | Tools: {toolCount} | MaxTokens: {options.MaxTokens}");
                 Log.Debug($"LLM request: model={resolvedModel} messages={messages.Count} tools={toolCount} endpoint={_endpoint}");
@@ -111,12 +118,12 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
 
             var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{_endpoint}/v1/chat/completions")
+            using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
             {
                 Content = content,
             };
 
-            if (ApiKey is not null)
+            if (!string.IsNullOrWhiteSpace(ApiKey))
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ApiKey);
 
             try
@@ -189,9 +196,9 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
                 ct.ThrowIfCancellationRequested();
 
                 if (string.IsNullOrEmpty(line)) continue;
-                if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+                if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
 
-                var data = line["data: ".Length..];
+                var data = line["data:".Length..].TrimStart();
                 if (data == "[DONE]")
                 {
                     foreach (var tc in toolCalls.Values.Where(t => t.IsComplete))
@@ -371,7 +378,8 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
                             }
                         }
 
-                        if (delta.TryGetProperty("tool_calls", out var toolCallsEl))
+                        if (delta.TryGetProperty("tool_calls", out var toolCallsEl) &&
+                            toolCallsEl.ValueKind == JsonValueKind.Array)
                         {
                             foreach (var tc in toolCallsEl.EnumerateArray())
                             {
@@ -449,13 +457,15 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
 
     private static string Truncate(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "…");
 
-    private static object BuildRequestBody(
+    internal static object BuildRequestBody(
         IReadOnlyList<Message> messages,
         JsonElement? tools,
         LlmOptions options,
-        string configModel)
+        string configModel,
+        bool usesLlamaExtensions = true)
     {
         var model = string.IsNullOrEmpty(options.Model) ? configModel : options.Model;
+        var isMimo = !usesLlamaExtensions && model.StartsWith("mimo-", StringComparison.OrdinalIgnoreCase);
 
         // Old sessions may hold tool-call arguments truncated mid-JSON (max_tokens cutoff),
         // which providers reject with a 400. Sanitize before serializing.
@@ -481,6 +491,7 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
                 {
                     role = "assistant",
                     content = m.Content ?? (object)"",
+                    reasoning_content = isMimo ? m.ReasoningContent : null,
                     tool_calls = m.ToolCalls.Select(tc => new
                     {
                         id = tc.Id,
@@ -488,7 +499,11 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
                         function = new { name = tc.Name, arguments = tc.Arguments }
                     })
                 },
-            MessageRole.Assistant => new { role = "assistant", content = m.Content },
+            MessageRole.Assistant => new
+            {
+                role = "assistant", content = m.Content,
+                reasoning_content = isMimo ? m.ReasoningContent : null,
+            },
             MessageRole.Tool => (object)new
             {
                 role = "tool",
@@ -503,17 +518,33 @@ public sealed class OpenAiCompatClient : ILlmClient, IDisposable
             ["model"] = model,
             ["messages"] = apiMessages,
             ["temperature"] = options.Temperature,
-            ["max_tokens"] = options.MaxTokens,
+            [isMimo ? "max_completion_tokens" : "max_tokens"] = options.MaxTokens,
             ["top_p"] = options.TopP,
-            ["top_k"] = options.TopK,
             ["presence_penalty"] = options.PresencePenalty,
-            ["min_p"] = options.MinP,
-            ["repetition_penalty"] = options.RepetitionPenalty,
             ["stream"] = true,
             ["stream_options"] = new { include_usage = true },
         };
 
-        if (options.EnableThinking.HasValue)
+        if (usesLlamaExtensions)
+        {
+            body["top_k"] = options.TopK;
+            body["min_p"] = options.MinP;
+            body["repetition_penalty"] = options.RepetitionPenalty;
+        }
+
+        if (isMimo)
+        {
+            if (options.EnableThinking.HasValue)
+                body["thinking"] = new { type = options.EnableThinking.Value ? "enabled" : "disabled" };
+            if (options.EnableThinking != false)
+            {
+                body.Remove("temperature");
+                body.Remove("top_p");
+            }
+            body.Remove("presence_penalty");
+        }
+
+        if (usesLlamaExtensions && options.EnableThinking.HasValue)
         {
             var kwargs = new Dictionary<string, object?>
             {
